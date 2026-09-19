@@ -25,7 +25,14 @@
   <main>
     <!-- 校验结果 -->
     <section class="card" id="validation-card">
-      <h2>校验结果</h2>
+      <div class="card-head">
+        <h2>校验结果</h2>
+        <div class="mode-switch" id="mode-switch" role="tablist">
+          <button type="button" class="mode-btn" data-mode="propagate">⛓ 连续口令延误传导</button>
+          <button type="button" class="mode-btn" data-mode="classic">📐 区段独立校验</button>
+        </div>
+      </div>
+      <p class="mode-hint" id="mode-hint"></p>
       <div id="summary" class="summary"></div>
       <div id="validation-results"></div>
     </section>
@@ -99,6 +106,7 @@
           <select id="cue-actor" required></select>
           <select id="cue-area" required></select>
           <input type="text" id="cue-time" placeholder="时间，如 90 或 01:30" required />
+          <input type="number" id="cue-dwell" placeholder="停留(秒) 0~600" min="0" max="600" step="1" title="在该区域需停留的秒数（0～600），用于连续口令延误传导模式" />
           <input type="text" id="cue-note" placeholder="口令说明（可选）" maxlength="60" />
           <div class="form-buttons">
             <button type="submit" class="btn btn-accent" id="cue-submit">添加口令</button>
@@ -106,7 +114,7 @@
           </div>
         </form>
         <table>
-          <thead><tr><th>演员</th><th>时间</th><th>目标区域</th><th>说明</th><th class="col-ops">操作</th></tr></thead>
+          <thead><tr><th>演员</th><th>时间</th><th>目标区域</th><th>停留</th><th>说明</th><th class="col-ops">操作</th></tr></thead>
           <tbody id="cues-tbody"></tbody>
         </table>
       </section>

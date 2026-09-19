@@ -1,10 +1,16 @@
 const express = require('express');
 const crypto = require('crypto');
 const store = require('./store');
-const { validate } = require('./validate');
+const { validate, MODES } = require('./validate');
 const { toMarkdown } = require('./report');
 
 const router = express.Router();
+
+/** 解析校验模式：缺省为区段独立校验（兼容旧调用），propagate 为连续口令延误传导 */
+function parseMode(query) {
+  if (query.mode === undefined) return 'classic';
+  return MODES.includes(query.mode) ? query.mode : null;
+}
 
 /* ---------- 入参校验 ---------- */
 
@@ -60,6 +66,9 @@ const validators = {
     if (!data.actors.some((a) => a.id === body.actorId)) return '必须选择已存在的演员';
     if (!data.areas.some((a) => a.id === body.areaId)) return '必须选择已存在的区域';
     if (!isNonNegativeInt(body.time)) return '时间必须是不小于 0 的整数秒';
+    if (body.dwell !== undefined && (!Number.isInteger(body.dwell) || body.dwell < 0 || body.dwell > 600)) {
+      return '停留时长必须是 0～600 的整数秒';
+    }
     if (body.note !== undefined && typeof body.note !== 'string') return '口令说明格式不正确';
     return null;
   },
@@ -73,8 +82,12 @@ function sanitize(collection, body) {
       return { name: body.name.trim(), role: (body.role || '').trim() };
     case 'edges':
       return { a: body.a, b: body.b, seconds: body.seconds, closures: normalizeClosures(body.closures) };
-    case 'cues':
-      return { actorId: body.actorId, areaId: body.areaId, time: body.time, note: (body.note || '').trim() };
+    case 'cues': {
+      const cue = { actorId: body.actorId, areaId: body.areaId, time: body.time, note: (body.note || '').trim() };
+      // dwell 缺省时不写入：POST 由路由补默认值 0，PUT 保留原值（兼容旧数据）
+      if (body.dwell !== undefined) cue.dwell = body.dwell;
+      return cue;
+    }
     default:
       return {};
   }
@@ -87,11 +100,15 @@ router.get('/data', (req, res) => {
 });
 
 router.get('/validate', (req, res) => {
-  res.json(validate(store.load()));
+  const mode = parseMode(req.query);
+  if (!mode) return res.status(400).json({ error: 'mode 必须是 classic 或 propagate' });
+  res.json(validate(store.load(), mode));
 });
 
 router.get('/report', (req, res) => {
-  const md = toMarkdown(validate(store.load()));
+  const mode = parseMode(req.query);
+  if (!mode) return res.status(400).json({ error: 'mode 必须是 classic 或 propagate' });
+  const md = toMarkdown(validate(store.load(), mode));
   const filename = encodeURIComponent('舞台走位校验报告.md');
   res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename=report.md; filename*=UTF-8''${filename}`);
@@ -116,6 +133,7 @@ router.post('/:collection', (req, res) => {
   if (err) return res.status(400).json({ error: err });
 
   const item = { id: crypto.randomUUID(), ...sanitize(collection, req.body) };
+  if (collection === 'cues' && item.dwell === undefined) item.dwell = 0; // 停留时长默认 0
 
   if (collection === 'edges') {
     const dup = data.edges.some(
