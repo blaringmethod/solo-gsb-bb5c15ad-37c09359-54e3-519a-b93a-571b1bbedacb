@@ -148,6 +148,7 @@ function renderCues() {
         <td>${escapeHtml(actorName(c.actorId))}</td>
         <td>${fmtTime(c.time)}</td>
         <td>${escapeHtml(areaName(c.areaId))}</td>
+        <td>${Number.isInteger(c.stay) && c.stay > 0 ? c.stay + ' 秒' : '—'}</td>
         <td>${escapeHtml(c.note || '')}</td>
         <td class="col-ops">
           <button class="btn btn-small" data-edit-cue="${c.id}">编辑</button>
@@ -155,10 +156,10 @@ function renderCues() {
         </td>
       </tr>`
     )
-    .join('') || '<tr><td colspan="5" class="empty-hint">暂无口令</td></tr>';
+    .join('') || '<tr><td colspan="6" class="empty-hint">暂无口令</td></tr>';
 }
 
-const STATUS_LABEL = { ok: '✅ 可达', fail: '❌ 超时', unreachable: '⛔ 不可达' };
+const STATUS_LABEL = { ok: '✅ 准时', fail: '❌ 迟到', unreachable: '⛔ 不可达' };
 
 function renderValidation() {
   const v = state.validation;
@@ -168,9 +169,10 @@ function renderValidation() {
   $('summary').innerHTML = `
     <div class="badge"><span class="num">${s.actors}</span><span class="label">演员</span></div>
     <div class="badge"><span class="num">${s.segments}</span><span class="label">校验区段</span></div>
-    <div class="badge ok"><span class="num">${s.ok}</span><span class="label">按时可达</span></div>
-    <div class="badge fail"><span class="num">${s.failed}</span><span class="label">无法按时抵达</span></div>
+    <div class="badge ok"><span class="num">${s.ok}</span><span class="label">准时</span></div>
+    <div class="badge fail"><span class="num">${s.failed}</span><span class="label">最终迟到</span></div>
     <div class="badge warn"><span class="num">${s.unreachable}</span><span class="label">区域不可达</span></div>
+    <div class="badge"><span class="num">${s.propagated}</span><span class="label">延误传导区段</span></div>
   `;
 
   const container = $('validation-results');
@@ -188,19 +190,43 @@ function renderValidation() {
       }
       const rows = actor.segments
         .map((seg) => {
-          let timeCell;
-          if (seg.status === 'unreachable') {
-            timeCell = `<span class="time-detail">可用 ${seg.availableSeconds} 秒</span>
-                        <span class="time-detail"><strong>两区域间无连通路径</strong></span>`;
-          } else if (seg.status === 'fail') {
-            timeCell = `<span class="time-detail">所需 <strong>${seg.requiredSeconds} 秒</strong> / 可用 ${seg.availableSeconds} 秒</span>
-                        <span class="time-detail"><strong>缺口 ${-seg.slackSeconds} 秒</strong></span>
-                        <span class="time-detail">最早到达 ${fmtTime(seg.arrivalTime)}</span>`;
-          } else {
-            timeCell = `<span class="time-detail">所需 ${seg.requiredSeconds} 秒 / 可用 ${seg.availableSeconds} 秒</span>
-                        <span class="time-detail">余量 ${seg.slackSeconds} 秒</span>
-                        <span class="time-detail">最早到达 ${fmtTime(seg.arrivalTime)}</span>`;
+          // 延误传导明细：计划/实际出发 → 实际到达 → 继承延误 / 最终迟到
+          const stayNote = seg.from.staySeconds > 0 ? `（含停留 ${seg.from.staySeconds} 秒）` : '';
+          const actualDepartTxt =
+            seg.actualDepart > seg.plannedDepart
+              ? `<strong>${fmtTime(seg.actualDepart)}</strong>`
+              : fmtTime(seg.actualDepart);
+          const cellParts = [];
+          cellParts.push(
+            `<span class="time-detail">计划出发 ${fmtTime(seg.plannedDepart)}${stayNote} → 实际出发 ${actualDepartTxt}</span>`
+          );
+          if (seg.chainReset) {
+            cellParts.push('<span class="time-detail">上一段不可达，本段按计划时刻重新起算</span>');
+          } else if (seg.inheritedDelay > 0) {
+            cellParts.push(
+              `<span class="time-detail"><span class="delay-tag">🔁 继承延误 ${seg.inheritedDelay} 秒</span></span>`
+            );
           }
+          if (seg.status === 'unreachable') {
+            cellParts.push('<span class="time-detail"><strong>两区域间无连通路径</strong></span>');
+          } else if (seg.status === 'fail') {
+            cellParts.push(
+              `<span class="time-detail">实际到达 ${fmtTime(seg.arrivalTime)}（路上 ${seg.requiredSeconds} 秒）</span>`
+            );
+            cellParts.push(
+              `<span class="time-detail"><strong>最终迟到 ${seg.latenessSeconds} 秒</strong></span>`
+            );
+          } else {
+            cellParts.push(
+              `<span class="time-detail">实际到达 ${fmtTime(seg.arrivalTime)}（路上 ${seg.requiredSeconds} 秒）· 余量 ${seg.slackSeconds} 秒</span>`
+            );
+            if (seg.inheritedDelay > 0) {
+              cellParts.push(
+                '<span class="time-detail"><span class="absorb-tag">✔ 延误已吸收，恢复准时</span></span>'
+              );
+            }
+          }
+          const timeCell = cellParts.join('');
           const route = seg.path.length > 0 ? escapeHtml(seg.path.join(' → ')) : '—';
           let legDetail = '';
           if (seg.legs && seg.legs.length > 0) {
@@ -213,9 +239,10 @@ function renderValidation() {
             });
             legDetail = `<span class="leg-detail">${parts.join('<br>')}</span>`;
           }
+          const fromStay = seg.from.staySeconds > 0 ? ` · 停留 ${seg.from.staySeconds} 秒` : '';
           return `<tr class="seg-${seg.status}">
             <td>${seg.index}</td>
-            <td>${escapeHtml(seg.from.areaName)}<span class="time-detail">${fmtTime(seg.from.time)}${seg.from.note ? ' · ' + escapeHtml(seg.from.note) : ''}</span></td>
+            <td>${escapeHtml(seg.from.areaName)}<span class="time-detail">${fmtTime(seg.from.time)}${fromStay}${seg.from.note ? ' · ' + escapeHtml(seg.from.note) : ''}</span></td>
             <td>${escapeHtml(seg.to.areaName)}<span class="time-detail">${fmtTime(seg.to.time)}${seg.to.note ? ' · ' + escapeHtml(seg.to.note) : ''}</span></td>
             <td>${timeCell}</td>
             <td class="route">${route}${legDetail}</td>
@@ -226,7 +253,7 @@ function renderValidation() {
       return `<div class="actor-block">
         <h3>${escapeHtml(actor.actorName)} <span class="cue-count">（${actor.cueCount} 条口令 / ${actor.segments.length} 个区段）</span></h3>
         <table>
-          <thead><tr><th>#</th><th>起点</th><th>终点</th><th>耗时校验</th><th>实际路线（含等待）</th><th>结论</th></tr></thead>
+          <thead><tr><th>#</th><th>起点</th><th>终点</th><th>时刻与延误传导</th><th>实际路线（含等待）</th><th>结论</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>`;
@@ -380,8 +407,20 @@ function bindForms() {
       toast('时间格式不正确，请输入秒数（如 90）或 mm:ss（如 01:30）', true);
       return;
     }
+    const stayRaw = $('cue-stay').value.trim();
+    const stay = stayRaw === '' ? 0 : Number(stayRaw);
+    if (!Number.isInteger(stay) || stay < 0 || stay > 600) {
+      toast('停留时长必须是 0～600 的整数秒', true);
+      return;
+    }
     const id = $('cue-id').value;
-    const body = { actorId: $('cue-actor').value, areaId: $('cue-area').value, time, note: $('cue-note').value.trim() };
+    const body = {
+      actorId: $('cue-actor').value,
+      areaId: $('cue-area').value,
+      time,
+      stay,
+      note: $('cue-note').value.trim(),
+    };
     mutate(async () => {
       if (id) await api(`/api/cues/${id}`, 'PUT', body);
       else await api('/api/cues', 'POST', body);
@@ -443,6 +482,7 @@ function bindTableActions() {
       $('cue-actor').value = c.actorId;
       $('cue-area').value = c.areaId;
       $('cue-time').value = fmtTime(c.time);
+      $('cue-stay').value = Number.isInteger(c.stay) ? c.stay : 0;
       $('cue-note').value = c.note || '';
       setEditing('cue-id', 'cue-submit', 'cue-cancel', true, '添加口令', '保存修改');
     } else if (d.delCue) {

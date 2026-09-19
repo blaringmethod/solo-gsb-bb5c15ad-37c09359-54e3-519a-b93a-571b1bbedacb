@@ -60,6 +60,9 @@ const validators = {
     if (!data.actors.some((a) => a.id === body.actorId)) return '必须选择已存在的演员';
     if (!data.areas.some((a) => a.id === body.areaId)) return '必须选择已存在的区域';
     if (!isNonNegativeInt(body.time)) return '时间必须是不小于 0 的整数秒';
+    if (body.stay !== undefined && (!Number.isInteger(body.stay) || body.stay < 0 || body.stay > 600)) {
+      return '停留时长必须是 0～600 的整数秒';
+    }
     if (body.note !== undefined && typeof body.note !== 'string') return '口令说明格式不正确';
     return null;
   },
@@ -74,7 +77,14 @@ function sanitize(collection, body) {
     case 'edges':
       return { a: body.a, b: body.b, seconds: body.seconds, closures: normalizeClosures(body.closures) };
     case 'cues':
-      return { actorId: body.actorId, areaId: body.areaId, time: body.time, note: (body.note || '').trim() };
+      // stay 缺省为 0（旧数据兼容），表示到位后须停留的秒数（0～600）
+      return {
+        actorId: body.actorId,
+        areaId: body.areaId,
+        time: body.time,
+        stay: body.stay === undefined ? 0 : body.stay,
+        note: (body.note || '').trim(),
+      };
     default:
       return {};
   }

@@ -12,7 +12,7 @@
       <span class="logo">🎭</span>
       <div>
         <h1>舞台走位校验系统</h1>
-        <p class="subtitle">区域连接图 · 通道封闭时段 · 到位口令时间校验</p>
+        <p class="subtitle">区域连接图 · 通道封闭时段 · 到位口令时间校验 · 连续延误传导</p>
       </div>
     </div>
     <div class="actions">
@@ -99,6 +99,7 @@
           <select id="cue-actor" required></select>
           <select id="cue-area" required></select>
           <input type="text" id="cue-time" placeholder="时间，如 90 或 01:30" required />
+          <input type="number" id="cue-stay" placeholder="停留(秒) 0~600" min="0" max="600" step="1" title="到位后须停留的秒数（0～600），会推迟前往下一条口令的出发时刻" />
           <input type="text" id="cue-note" placeholder="口令说明（可选）" maxlength="60" />
           <div class="form-buttons">
             <button type="submit" class="btn btn-accent" id="cue-submit">添加口令</button>
@@ -106,7 +107,7 @@
           </div>
         </form>
         <table>
-          <thead><tr><th>演员</th><th>时间</th><th>目标区域</th><th>说明</th><th class="col-ops">操作</th></tr></thead>
+          <thead><tr><th>演员</th><th>时间</th><th>目标区域</th><th>停留</th><th>说明</th><th class="col-ops">操作</th></tr></thead>
           <tbody id="cues-tbody"></tbody>
         </table>
       </section>
